@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>资治通鉴复盘 — 决策顾问版</title>
+  <title>历史小卡片</title>
   <style>
     :root{--bg:#0f1724;--card:#0b1220;--muted:#9aa4b2;--accent:#7dd3fc;--text:#e6eef6}
     html,body{height:100%;margin:0;font-family:Inter, "PingFang SC", "Microsoft YaHei", sans-serif}
@@ -78,6 +78,7 @@
 <script>
 const DEFAULT_MODEL = 'gemini-3-flash-preview';
 const VOLUME_COUNT = 294;
+const CACHE_KEY = 'gai_history_cache'; // 新增：预取内容缓存键
 let timerInterval = null;
 
 function qs(sel){return document.querySelector(sel)}
@@ -104,28 +105,14 @@ copyBtn.addEventListener('click', ()=>{
   navigator.clipboard.writeText(text).then(()=>alert('已复制纯文本'));
 });
 
-async function generateAndRender(){
+// 新增：核心请求函数（不直接操作 UI 渲染，只负责获取数据）
+async function fetchNewArticle() {
   const key = loadKey();
-  if(!key){ alert('请先输入并保存 API Key'); apiKeyInput.focus(); return; }
-  
+  if(!key) return null;
   const model = modelSelect.value || DEFAULT_MODEL;
   const volume = `卷${Math.floor(Math.random()*VOLUME_COUNT) + 1}`;
   const prompt = buildPrompt(volume);
 
-  // 初始化状态
-  statusEl.textContent = '思考中...';
-  generateBtn.disabled = true;
-  rendered.innerHTML = '<div style="text-align:center;padding-top:50px;">正在调阅史籍，请稍候...</div>';
-  
-  // 实时计时器逻辑
-  clearInterval(timerInterval);
-  let startTime = performance.now();
-  timerInterval = setInterval(() => {
-    const currentTime = performance.now();
-    genTimeEl.textContent = ((currentTime - startTime) / 1000).toFixed(2) + 's';
-  }, 50);
-
-  try {
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
     const resp = await fetch(endpoint, {
       method: 'POST',
@@ -136,14 +123,37 @@ async function generateAndRender(){
       })
     });
 
-    if(!resp.ok){
-      const errorData = await resp.json();
-      throw new Error(errorData.error?.message || 'API 请求失败');
-    }
+  if(!resp.ok) throw new Error('API 请求失败');
+  const data = await resp.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || '未获取到内容';
+}
 
-    const data = await resp.json();
-    const outText = data.candidates?.[0]?.content?.parts?.[0]?.text || '未获取到内容';
+// 修改后的生成函数：优先消耗缓存
+async function generateAndRender(){
+  const key = loadKey();
+  if(!key){ alert('请先输入并保存 API Key'); apiKeyInput.focus(); return; }
 
+  const cachedData = localStorage.getItem(CACHE_KEY);
+  
+  if (cachedData) {
+    // 1. 如果有缓存，直接渲染缓存，实现“秒开”
+    rendered.innerHTML = marked.parse(cachedData);
+    statusEl.textContent = '已加载预取内容';
+    localStorage.removeItem(CACHE_KEY); // 消耗掉旧缓存
+  } else {
+    // 2. 无缓存（如首次运行），执行正常请求逻辑
+    statusEl.textContent = '思考中...';
+    generateBtn.disabled = true;
+    rendered.innerHTML = '<div style="text-align:center;padding-top:50px;">正在调阅史籍，请稍候...</div>';
+    
+    clearInterval(timerInterval);
+    let startTime = performance.now();
+    timerInterval = setInterval(() => {
+      genTimeEl.textContent = ((performance.now() - startTime) / 1000).toFixed(2) + 's';
+    }, 50);
+
+    try {
+      const outText = await fetchNewArticle();
     rendered.innerHTML = marked.parse(outText);
     statusEl.textContent = '复盘完成';
   } catch(err){
@@ -152,13 +162,33 @@ async function generateAndRender(){
   } finally {
     clearInterval(timerInterval);
     generateBtn.disabled = false;
+    }
+  }
+
+  // 3. 关键步骤：无论这次是消耗缓存还是实时生成的，结束后都在后台预取下一篇
+  prefetchNext();
+}
+
+// 新增：后台预取函数
+async function prefetchNext() {
+  if (localStorage.getItem(CACHE_KEY)) return; // 已有预取则跳过
+  console.log('正在后台预取下一篇内容...');
+  try {
+    const nextText = await fetchNewArticle();
+    localStorage.setItem(CACHE_KEY, nextText);
+    console.log('下一篇内容已就绪。');
+  } catch (e) {
+    console.error('预取失败', e);
   }
 }
 
 generateBtn.addEventListener('click', generateAndRender);
 
 window.addEventListener('load', ()=>{
-  if(loadKey()){ setTimeout(generateAndRender, 300); }
+  if(loadKey()){ 
+    // 自动加载逻辑：如果有缓存直接显式，没有则生成
+    generateAndRender();
+  }
 });
 </script>
 </body>
