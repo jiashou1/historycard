@@ -37,7 +37,7 @@
     <header>
       <div>
         <h1>历史小卡片</h1>
-        <div class="tiny">Engine: <strong>Gemini-3-Flash</strong> · 实时深度博弈拆解</div>
+        <div class="tiny">Engine: <strong>qwen3.5-plus</strong> · 实时深度博弈拆解</div>
       </div>
       <div class="badge">PRO 模式</div>
     </header>
@@ -45,13 +45,14 @@
     <div class="card">
       <div style="display:flex;gap:12px;flex-wrap:wrap">
         <div style="flex:1;min-width:160px">
-          <label>Google AI API Key</label>
+          <label>DashScope API Key</label>
           <input id="apiKey" type="text" placeholder="输入 Key 并回车以保存" />
         </div>
         <div style="width:160px">
           <label>模型选择</label>
           <select id="modelSelect">
-            <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
+            <option value="qwen-plus">qwen3.5-plus</option>
+            <option value="qwen-max">qwen-max</option>
           </select>
         </div>
       </div>
@@ -76,7 +77,7 @@
   </div>
 
 <script>
-const DEFAULT_MODEL = 'gemini-3-flash-preview';
+const DEFAULT_MODEL = 'qwen3.5-plus';
 const VOLUME_COUNT = 294;
 const CACHE_KEY = 'gai_history_cache'; // 新增：预取内容缓存键
 let timerInterval = null;
@@ -86,7 +87,64 @@ function saveKey(k){localStorage.setItem('gai_apikey', k)}
 function loadKey(){return localStorage.getItem('gai_apikey')||''}
 
 function buildPrompt(volumeLabel){
-  return `【指令区：角色设定]\n\n你是一位精通《资治通鉴》的首席决策分析师。你不仅具备深厚的历史考据能力，还擅长运用博弈论（信息不对称/零和博弈）、管理学（资源配置/代理人风险）及心理学（认知偏误）对历史事件进行多维度拆解。\n\n[任务区：核心工作流]\n\n请随机挑选一个《资治通鉴》中非著名但具备高度决策压力的故事，执行以下四个阶段的深度复盘：\n\n1. 决策背景还原：明确时间、地点、核心利益冲突点（标注《通鉴》卷数）。\n2. 局中人博弈全貌：叙述事件起因、过程及结局。重点梳理各方如何进行“资源置换”或“战略欺诈”。\n3. 多维视角“赛后总结”：选择至少3个核心关联角色，分析其：核心利益诉求、信息不对称点、心理防御机制。\n4. 现实止损映射：将此困境映射到现代管理或商业中，总结一条“红线”准则。\n\n[反方辩证]\n站在该决策对立面立场，列举 3 个长期隐患。\n\n在最后附上《资治通鉴》中的原文及白话文翻译。\n\n线索卷号：${volumeLabel}`;
+  return `# Role
+你是一位精通中国历史文献的资深史学家，尤其擅长《资治通鉴》的文本解读与人物心理分析。你具备深厚的古文功底，能够精准翻译晦涩的文言实词与虚词，同时拥有现代管理学与博弈论的视角，能从多维度复盘历史事件。
+
+# Task
+请从《资治通鉴》中选取一个**完整的历史故事**。
+**核心约束**：该故事必须**避开**大众熟知的著名典故（如：赤壁之战、淝水之战、玄武门之变、商鞅变法、完璧归赵等）。请选择一个相对冷门、细节丰富且具有人性张力的片段（例如：某次具体的宫廷政变细节、某位名臣的仕途转折、一次鲜为人知的外交博弈等）。
+
+# Workflow
+1. **选材确认**：简要介绍所选故事的背景（时间、地点、核心冲突），并说明为何选择这个故事（其独特性或启示意义）。
+2. **原文呈现**：摘录《资治通鉴》中关于该故事的完整原文段落。
+3. **白话译文**：提供流畅、准确且符合现代阅读习惯的白话文翻译，保留原文的语气色彩。
+4. **多视角深度复盘**：这是核心部分。请分别站在故事中**至少三个关键角色**的立场上，进行第一人称或深度第三人称的复盘。
+   - **复盘维度**需包含：
+     - **当时情境**：角色在当时掌握的信息、面临的压力与局限。
+     - **决策逻辑**：角色做出该行为背后的深层动机（利益、情感、价值观或生存本能）。
+     - **得失反思**：如果站在上帝视角回看，该角色的策略有何优劣？是否有更好的破局之道？
+5. **史家点评**：结合司马光的“臣光曰”（若有）或你自己的专业见解，总结该故事对现代人的启示。
+
+# Output Format
+请严格按照以下Markdown格式输出：
+
+## 1. 故事档案
+- **出处**：《资治通鉴》卷XX · [朝代]
+- **故事标题**：[自拟一个精炼的标题]
+- **选材理由**：[简述]
+
+## 2. 原文选段
+> [在此处插入古文原文]
+
+## 3. 白话译注
+[在此处插入白话文翻译，关键人名、地名可加注]
+
+## 4. 多维角色复盘
+### 👤 角色A：[姓名/身份]
+- **处境分析**：...
+- **内心独白/决策推演**：...
+- **复盘反思**：...
+
+### 👤 角色B：[姓名/身份]
+- **处境分析**：...
+- **内心独白/决策推演**：...
+- **复盘反思**：...
+
+### 👤 角色C：[姓名/身份]
+- **处境分析**：...
+- **内心独白/决策推演**：...
+- **复盘反思**：...
+
+## 5. 史家总评
+[在此处撰写总结性评论]
+
+# Constraints
+- 严禁选择教科书级别的著名故事。
+- 译文需信、达、雅，避免过度口语化导致历史厚重感缺失。
+- 角色复盘需避免脸谱化，要挖掘人性的复杂灰度。
+- 保持客观中立，不强行灌输现代价值观，但要提炼普世智慧。
+
+请开始执行任务。`;
 }
 
 const apiKeyInput = qs('#apiKey');
@@ -105,7 +163,7 @@ copyBtn.addEventListener('click', ()=>{
   navigator.clipboard.writeText(text).then(()=>alert('已复制纯文本'));
 });
 
-// 新增：核心请求函数（不直接操作 UI 渲染，只负责获取数据）
+// 新增：核心请求函数（适配 DashScope OpenAI 兼容接口）
 async function fetchNewArticle() {
   const key = loadKey();
   if(!key) return null;
@@ -113,25 +171,34 @@ async function fetchNewArticle() {
   const volume = `卷${Math.floor(Math.random()*VOLUME_COUNT) + 1}`;
   const prompt = buildPrompt(volume);
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
-    const resp = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { maxOutputTokens: 5000, temperature: 0.7 }
-      })
-    });
+  const endpoint = `https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions`;
+  const resp = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${key}`
+    },
+    body: JSON.stringify({
+      model: model,
+      messages: [
+        { role: "user", content: prompt }
+      ],
+      temperature: 0.7
+    })
+  });
 
-  if(!resp.ok) throw new Error('API 请求失败');
+  if(!resp.ok) {
+    const errorData = await resp.json();
+    throw new Error(errorData.error?.message || 'API 请求失败');
+  }
   const data = await resp.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || '未获取到内容';
+  return data.choices?.[0]?.message?.content || '未获取到内容';
 }
 
 // 修改后的生成函数：优先消耗缓存
 async function generateAndRender(){
   const key = loadKey();
-  if(!key){ alert('请先输入并保存 API Key'); apiKeyInput.focus(); return; }
+  if(!key){ alert('请先输入并保存 API Key (DashScope)'); apiKeyInput.focus(); return; }
 
   const cachedData = localStorage.getItem(CACHE_KEY);
   
@@ -154,14 +221,14 @@ async function generateAndRender(){
 
     try {
       const outText = await fetchNewArticle();
-    rendered.innerHTML = marked.parse(outText);
-    statusEl.textContent = '复盘完成';
-  } catch(err){
-    statusEl.textContent = '异常';
-    rendered.innerHTML = `<p style="color:#f87171">错误：${err.message}</p>`;
-  } finally {
-    clearInterval(timerInterval);
-    generateBtn.disabled = false;
+      rendered.innerHTML = marked.parse(outText);
+      statusEl.textContent = '复盘完成';
+    } catch(err){
+      statusEl.textContent = '异常';
+      rendered.innerHTML = `<p style="color:#f87171">错误：${err.message}</p>`;
+    } finally {
+      clearInterval(timerInterval);
+      generateBtn.disabled = false;
     }
   }
 
