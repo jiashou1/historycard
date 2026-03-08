@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>资治通鉴复盘 — 决策顾问版</title>
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--muted:#9aa4b2;--accent:#7dd3fc;--text:#e6eef6}
+    html,body{height:100%;margin:0;font-family:Inter, "PingFang SC", "Microsoft YaHei", sans-serif}
+    body{background:linear-gradient(180deg,#071226 0%, #071a2a 100%);color:var(--text);padding:22px}
+    .container{max-width:900px;margin:0 auto}
+    header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+    h1{margin:0;font-size:20px;letter-spacing:1px}
+    .card{background:var(--card);border-radius:12px;padding:20px;box-shadow:0 10px 30px rgba(0,0,0,0.5);margin-top:16px;border:1px solid rgba(255,255,255,0.05)}
+    label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+    input[type=text], select{width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.03);color:inherit;outline:none}
+    input[type=text]:focus{border-color:var(--accent)}
+    .controls{display:flex;gap:12px;align-items:center;margin:20px 0;padding-bottom:15px;border-bottom:1px solid rgba(255,255,255,0.05)}
+    button{background:linear-gradient(90deg,var(--accent),#60a5fa);border:0;padding:10px 20px;border-radius:8px;color:#042029;font-weight:600;cursor:pointer;transition:opacity 0.2s}
+    button:disabled{opacity:0.6;cursor:not-allowed}
+    button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.1);color:var(--muted)}
+    .meta{font-size:13px;color:var(--muted);font-family:ui-monospace, monospace}
+    .pane{min-height:500px;overflow:auto;background:rgba(255,255,255,0.01);padding:24px;border-radius:10px;line-height:1.7}
+    /* Markdown 样式微调 */
+    #rendered h2{border-left:4px solid var(--accent);padding-left:12px;font-size:1.4em;margin-top:1.5em}
+    #rendered blockquote{border-left:4px solid #334155;margin:1em 0;padding-left:1em;color:var(--muted)}
+    #rendered pre{background:rgba(0,0,0,0.3);padding:12px;border-radius:6px;overflow-x:auto}
+    #rendered code{color:var(--accent);font-family:monospace}
+    .tiny{font-size:12px;color:var(--muted);margin-top:4px}
+    .badge{background:rgba(125,211,252,0.1);color:var(--accent);padding:4px 10px;border-radius:999px;font-size:12px;font-weight:bold}
+    #genTime{color:var(--accent);font-weight:bold}
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>资治通鉴复盘 — 决策顾问模式</h1>
+        <div class="tiny">Engine: <strong>Gemini-3-Flash</strong> · 实时深度博弈拆解</div>
+      </div>
+      <div class="badge">PRO 模式</div>
+    </header>
+
+    <div class="card">
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:160px">
+          <label>Google AI API Key</label>
+          <input id="apiKey" type="text" placeholder="输入 Key 并回车以保存" />
+        </div>
+        <div style="width:160px">
+          <label>模型选择</label>
+          <select id="modelSelect">
+            <option value="gemini-3-flash-preview">gemini-3-flash-preview</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button id="generateBtn">随机生成下一篇</button>
+        <button id="copyBtn" class="ghost">复制结果</button>
+        <div class="meta">
+          耗时：<span id="genTime">0.00s</span> | 状态：<span id="status">待命</span>
+        </div>
+      </div>
+
+      <div class="pane">
+        <div id="rendered">
+          <p style="color:var(--muted);text-align:center;margin-top:100px;">
+            请确保 API Key 已设置，点击按钮开始历史复盘。
+          </p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+<script>
+const DEFAULT_MODEL = 'gemini-3-flash-preview';
+const VOLUME_COUNT = 294;
+let timerInterval = null;
+
+function qs(sel){return document.querySelector(sel)}
+function saveKey(k){localStorage.setItem('gai_apikey', k)}
+function loadKey(){return localStorage.getItem('gai_apikey')||''}
+
+function buildPrompt(volumeLabel){
+  return `【指令区：角色设定]\n\n你是一位精通《资治通鉴》的首席决策分析师。你不仅具备深厚的历史考据能力，还擅长运用博弈论（信息不对称/零和博弈）、管理学（资源配置/代理人风险）及心理学（认知偏误）对历史事件进行多维度拆解。\n\n[任务区：核心工作流]\n\n请随机挑选一个《资治通鉴》中非著名但具备高度决策压力的故事，执行以下四个阶段的深度复盘：\n\n1. 决策背景还原：明确时间、地点、核心利益冲突点（标注《通鉴》卷数）。\n2. 局中人博弈全貌：叙述事件起因、过程及结局。重点梳理各方如何进行“资源置换”或“战略欺诈”。\n3. 多维视角“赛后总结”：选择至少3个核心关联角色，分析其：核心利益诉求、信息不对称点、心理防御机制。\n4. 现实止损映射：将此困境映射到现代管理或商业中，总结一条“红线”准则。\n\n[反方辩证]\n站在该决策对立面立场，列举 3 个长期隐患。\n\n在最后附上《资治通鉴》中的原文及白话文翻译。\n\n线索卷号：${volumeLabel}`;
+}
+
+const apiKeyInput = qs('#apiKey');
+const generateBtn = qs('#generateBtn');
+const rendered = qs('#rendered');
+const statusEl = qs('#status');
+const genTimeEl = qs('#genTime');
+const modelSelect = qs('#modelSelect');
+const copyBtn = qs('#copyBtn');
+
+apiKeyInput.value = loadKey();
+apiKeyInput.addEventListener('change', ()=>{ saveKey(apiKeyInput.value.trim()); });
+
+copyBtn.addEventListener('click', ()=>{
+  const text = rendered.innerText;
+  navigator.clipboard.writeText(text).then(()=>alert('已复制纯文本'));
+});
+
+async function generateAndRender(){
+  const key = loadKey();
+  if(!key){ alert('请先输入并保存 API Key'); apiKeyInput.focus(); return; }
+  
+  const model = modelSelect.value || DEFAULT_MODEL;
+  const volume = `卷${Math.floor(Math.random()*VOLUME_COUNT) + 1}`;
+  const prompt = buildPrompt(volume);
+
+  // 初始化状态
+  statusEl.textContent = '思考中...';
+  generateBtn.disabled = true;
+  rendered.innerHTML = '<div style="text-align:center;padding-top:50px;">正在调阅史籍，请稍候...</div>';
+  
+  // 实时计时器逻辑
+  clearInterval(timerInterval);
+  let startTime = performance.now();
+  timerInterval = setInterval(() => {
+    const currentTime = performance.now();
+    genTimeEl.textContent = ((currentTime - startTime) / 1000).toFixed(2) + 's';
+  }, 50);
+
+  try {
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: { maxOutputTokens: 5000, temperature: 0.7 }
+      })
+    });
+
+    if(!resp.ok){
+      const errorData = await resp.json();
+      throw new Error(errorData.error?.message || 'API 请求失败');
+    }
+
+    const data = await resp.json();
+    const outText = data.candidates?.[0]?.content?.parts?.[0]?.text || '未获取到内容';
+
+    rendered.innerHTML = marked.parse(outText);
+    statusEl.textContent = '复盘完成';
+  } catch(err){
+    statusEl.textContent = '异常';
+    rendered.innerHTML = `<p style="color:#f87171">错误：${err.message}</p>`;
+  } finally {
+    clearInterval(timerInterval);
+    generateBtn.disabled = false;
+  }
+}
+
+generateBtn.addEventListener('click', generateAndRender);
+
+window.addEventListener('load', ()=>{
+  if(loadKey()){ setTimeout(generateAndRender, 300); }
+});
+</script>
+</body>
+</html>
