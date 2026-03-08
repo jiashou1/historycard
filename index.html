@@ -77,21 +77,45 @@
   </div>
 
 <script>
-const DEFAULT_MODEL = 'qwen3.5-plus';
-const VOLUME_COUNT = 294;
-const CACHE_KEY = 'gai_history_cache'; // 新增：预取内容缓存键
-let timerInterval = null;
 
-function qs(sel){return document.querySelector(sel)}
-function saveKey(k){localStorage.setItem('gai_apikey', k)}
-function loadKey(){return localStorage.getItem('gai_apikey')||''}
+const CACHE_KEY="gai_history_cache"
+const DEFAULT_MODEL="qwen3.5-plus"
 
-function buildPrompt(volumeLabel){
-  return `# Role
+function qs(s){return document.querySelector(s)}
+
+const apiKeyInput=qs("#apiKey")
+const rendered=qs("#rendered")
+const generateBtn=qs("#generateBtn")
+const statusEl=qs("#status")
+const genTimeEl=qs("#genTime")
+const modelSelect=qs("#modelSelect")
+const copyBtn=qs("#copyBtn")
+
+function saveKey(k){localStorage.setItem("gai_apikey",k)}
+function loadKey(){return localStorage.getItem("gai_apikey")||""}
+
+apiKeyInput.value=loadKey()
+
+apiKeyInput.addEventListener("change",()=>{
+saveKey(apiKeyInput.value.trim())
+})
+
+copyBtn.onclick=()=>{
+navigator.clipboard.writeText(rendered.innerText)
+alert("已复制")
+}
+
+function randomVolume(){
+return `卷${Math.floor(Math.random()*260)+30}`
+}
+
+function buildPrompt(volume){
+
+return `# Role
 你是一位精通中国历史文献的资深史学家，尤其擅长《资治通鉴》的文本解读与人物心理分析。你具备深厚的古文功底，能够精准翻译晦涩的文言实词与虚词，同时拥有现代管理学与博弈论的视角，能从多维度复盘历史事件。
 
 # Task
-请从《资治通鉴》中选取一个**完整的历史故事**。
+请**仅从《资治通鉴》卷${volume} 中**选取一个完整的历史故事。。
 **核心约束**：该故事必须**避开**大众熟知的著名典故（如：赤壁之战、淝水之战、玄武门之变、商鞅变法、完璧归赵等）。请选择一个相对冷门、细节丰富且具有人性张力的片段（例如：某次具体的宫廷政变细节、某位名臣的仕途转折、一次鲜为人知的外交博弈等）。
 
 # Workflow
@@ -147,116 +171,167 @@ function buildPrompt(volumeLabel){
 请开始执行任务。`;
 }
 
-const apiKeyInput = qs('#apiKey');
-const generateBtn = qs('#generateBtn');
-const rendered = qs('#rendered');
-const statusEl = qs('#status');
-const genTimeEl = qs('#genTime');
-const modelSelect = qs('#modelSelect');
-const copyBtn = qs('#copyBtn');
+async function fetchWithRetry(fn,retries=2){
+try{
+return await fn()
+}catch(e){
+if(retries===0)throw e
+await new Promise(r=>setTimeout(r,1500))
+return fetchWithRetry(fn,retries-1)
+}
+}
 
-apiKeyInput.value = loadKey();
-apiKeyInput.addEventListener('change', ()=>{ saveKey(apiKeyInput.value.trim()); });
+async function streamArticle(onToken){
 
-copyBtn.addEventListener('click', ()=>{
-  const text = rendered.innerText;
-  navigator.clipboard.writeText(text).then(()=>alert('已复制纯文本'));
-});
+const key=loadKey()
+const model=modelSelect.value||DEFAULT_MODEL
+const volume=randomVolume()
 
-// 新增：核心请求函数（适配 DashScope OpenAI 兼容接口）
-async function fetchNewArticle() {
-  const key = loadKey();
-  if(!key) return null;
-  const model = modelSelect.value || DEFAULT_MODEL;
-  const volume = `卷${Math.floor(Math.random()*VOLUME_COUNT) + 1}`;
-  const prompt = buildPrompt(volume);
+const prompt=buildPrompt(volume)
 
-  const endpoint = `https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions`;
-  const resp = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${key}`
+const resp=await fetch(
+"https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+{
+    method:"POST",
+    headers:{
+"Content-Type":"application/json",
+"Authorization":"Bearer "+key
     },
-    body: JSON.stringify({
-      model: model,
-      messages: [
-        { role: "user", content: prompt }
-      ],
-      temperature: 0.7
+body:JSON.stringify({
+model:model,
+stream:true,
+temperature:0.7,
+messages:[{role:"user",content:prompt}]
     })
-  });
+}
+)
 
-  if(!resp.ok) {
-    const errorData = await resp.json();
-    throw new Error(errorData.error?.message || 'API 请求失败');
-  }
-  const data = await resp.json();
-  return data.choices?.[0]?.message?.content || '未获取到内容';
+if(!resp.ok){
+
+const text=await resp.text()
+
+throw new Error(text.slice(0,200))
+
 }
 
-// 修改后的生成函数：优先消耗缓存
-async function generateAndRender(){
-  const key = loadKey();
-  if(!key){ alert('请先输入并保存 API Key (DashScope)'); apiKeyInput.focus(); return; }
+const reader=resp.body.getReader()
+const decoder=new TextDecoder()
 
-  const cachedData = localStorage.getItem(CACHE_KEY);
-  
-  if (cachedData) {
-    // 1. 如果有缓存，直接渲染缓存，实现“秒开”
-    rendered.innerHTML = marked.parse(cachedData);
-    statusEl.textContent = '已加载预取内容';
-    localStorage.removeItem(CACHE_KEY); // 消耗掉旧缓存
-  } else {
-    // 2. 无缓存（如首次运行），执行正常请求逻辑
-    statusEl.textContent = '思考中...';
-    generateBtn.disabled = true;
-    rendered.innerHTML = '<div style="text-align:center;padding-top:50px;">正在调阅史籍，请稍候...</div>';
-    
-    clearInterval(timerInterval);
-    let startTime = performance.now();
-    timerInterval = setInterval(() => {
-      genTimeEl.textContent = ((performance.now() - startTime) / 1000).toFixed(2) + 's';
-    }, 50);
+let full=""
 
-    try {
-      const outText = await fetchNewArticle();
-      rendered.innerHTML = marked.parse(outText);
-      statusEl.textContent = '复盘完成';
-    } catch(err){
-      statusEl.textContent = '异常';
-      rendered.innerHTML = `<p style="color:#f87171">错误：${err.message}</p>`;
-    } finally {
-      clearInterval(timerInterval);
-      generateBtn.disabled = false;
-    }
-  }
+while(true){
 
-  // 3. 关键步骤：无论这次是消耗缓存还是实时生成的，结束后都在后台预取下一篇
-  prefetchNext();
+const {done,value}=await reader.read()
+
+if(done)break
+
+const chunk=decoder.decode(value)
+
+const lines=chunk.split("\n")
+
+for(const line of lines){
+
+if(!line.startsWith("data:"))continue
+
+const json=line.replace("data:","").trim()
+
+if(json==="[DONE]")continue
+
+try{
+
+const data=JSON.parse(json)
+
+const token=data.choices?.[0]?.delta?.content
+
+if(token){
+
+full+=token
+
+onToken(token,full)
+
 }
 
-// 新增：后台预取函数
-async function prefetchNext() {
-  if (localStorage.getItem(CACHE_KEY)) return; // 已有预取则跳过
-  console.log('正在后台预取下一篇内容...');
-  try {
-    const nextText = await fetchNewArticle();
-    localStorage.setItem(CACHE_KEY, nextText);
-    console.log('下一篇内容已就绪。');
-  } catch (e) {
-    console.error('预取失败', e);
-  }
+}catch{}
+
 }
 
-generateBtn.addEventListener('click', generateAndRender);
+}
 
-window.addEventListener('load', ()=>{
-  if(loadKey()){ 
-    // 自动加载逻辑：如果有缓存直接显式，没有则生成
-    generateAndRender();
-  }
-});
+return full
+
+}
+
+let buffer=""
+let renderTimer=null
+
+function scheduleRender(){
+
+if(renderTimer)return
+
+renderTimer=setTimeout(()=>{
+
+rendered.innerHTML=marked.parse(buffer)
+
+renderTimer=null
+
+},80)
+
+}
+
+async function generate(){
+
+const key=loadKey()
+
+if(!key){
+alert("请先输入API Key")
+return
+}
+
+buffer=""
+
+rendered.innerHTML=""
+
+statusEl.textContent="生成中"
+
+generateBtn.disabled=true
+
+let start=performance.now()
+
+const timer=setInterval(()=>{
+
+genTimeEl.textContent=((performance.now()-start)/1000).toFixed(2)+"s"
+
+},50)
+
+  try{
+
+await fetchWithRetry(()=>streamArticle((token,full)=>{
+
+buffer=full
+
+scheduleRender()
+
+}))
+
+statusEl.textContent="完成"
+
+}catch(e){
+
+rendered.innerHTML="<p style='color:#f87171'>"+e.message+"</p>"
+
+statusEl.textContent="异常"
+
+}
+
+clearInterval(timer)
+
+generateBtn.disabled=false
+
+}
+
+generateBtn.onclick=generate
+
 </script>
+
 </body>
 </html>
